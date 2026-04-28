@@ -1,0 +1,1254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coordinate Converter • Lat/Lng ↔ MGRS</title>
+<meta name="description" content="A clean, fast coordinate converter to translate between Google Maps (Latitude/Longitude) and MGRS (Military Grid Reference System) coordinates. Features conversion history, clipboard copy, horizontal/vertical layouts, and offline state persistence.">
+<meta name="keywords" content="coordinate converter, MGRS, lat lng, latitude longitude, Google Maps, GPS, military grid, UTM, geolocation">
+<meta name="author" content="Coordinate Converter">
+<meta name="theme-color" content="#4a6b82">
+
+<meta property="og:title" content="Coordinate Converter • Lat/Lng ↔ MGRS">
+<meta property="og:description" content="Convert between Google Maps coordinates and MGRS with ease. Includes history, copy-to-clipboard, and responsive layouts.">
+<meta property="og:type" content="website">
+
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%237fa3bf'/><stop offset='1' stop-color='%234a6b82'/></linearGradient></defs><rect width='64' height='64' rx='14' fill='url(%23g)'/><path d='M32 14c-7 0-12 5-12 12 0 9 12 24 12 24s12-15 12-24c0-7-5-12-12-12zm0 16a4 4 0 110-8 4 4 0 010 8z' fill='%23f5f1e8'/></svg>">
+
+<script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.13/dayjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.13/plugin/relativeTime.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.13/plugin/localizedFormat.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/proj4@2.12.1/dist/proj4.min.js"></script>
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 14px; }
+
+  :root {
+    --bg-1: #2c3e50;
+    --bg-2: #3d5a6c;
+    --bg-3: #34495e;
+    --accent: #7fa3bf;
+    --accent-2: #a8c5a0;
+    --success: #81a582;
+    --danger: #c08080;
+    --warning: #d4b483;
+    --card: rgba(255, 255, 255, 0.06);
+    --card-hover: rgba(255, 255, 255, 0.10);
+    --border: rgba(255, 255, 255, 0.12);
+    --text: #e8ecef;
+    --text-dim: #9aa5b1;
+  }
+
+  body {
+    min-height: 100vh;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 0.95rem;
+    color: var(--text);
+    background: linear-gradient(135deg, var(--bg-1), var(--bg-2), var(--bg-3));
+    background-size: 400% 400%;
+    animation: gradientShift 25s ease infinite;
+    padding: 14px;
+    overflow-x: hidden;
+  }
+
+  @keyframes gradientShift {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+
+  .app { max-width: 1200px; margin: 0 auto; }
+  header { text-align: center; padding: 10px 0 18px; }
+
+  h1 {
+    font-size: clamp(1.4rem, 2.4vw, 1.9rem);
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  .subtitle { color: var(--text-dim); margin-top: 4px; font-size: 0.82rem; }
+
+  .orientation-toggle {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+
+  .orient-btn {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .orient-btn:hover { background: var(--card-hover); }
+  .orient-btn.active {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    border-color: transparent;
+    color: #1f2d38;
+    font-weight: 600;
+  }
+
+  .container { display: grid; gap: 14px; transition: all 0.3s; }
+  .container.horizontal { grid-template-columns: 1fr 1fr 1fr; }
+  .container.vertical {
+    grid-template-columns: 1fr;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+
+  @media (max-width: 880px) {
+    .container.horizontal { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--card);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    transition: box-shadow 0.2s;
+  }
+
+  .card:hover { box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22); }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 0.98rem;
+    font-weight: 600;
+  }
+
+  .icon {
+    width: 26px;
+    height: 26px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+  }
+
+  .form-group { margin-bottom: 10px; }
+
+  label {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  .label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+
+  .label-row label { margin-bottom: 0; }
+
+  .precision-select {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 3px 7px;
+    border-radius: 5px;
+    font-size: 0.72rem;
+    cursor: pointer;
+  }
+
+  input[type="text"], input[type="number"] {
+    width: 100%;
+    padding: 9px 11px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.87rem;
+    font-family: 'Consolas', monospace;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(127, 163, 191, 0.18);
+  }
+
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  .btn {
+    width: 100%;
+    padding: 9px;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.87rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #1f2d38;
+    margin-top: 4px;
+  }
+
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 3px 12px rgba(127, 163, 191, 0.3); }
+  .btn:active { transform: translateY(0); }
+
+  .result {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.88rem;
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    word-break: break-all;
+    gap: 8px;
+  }
+
+  .result.success { border-color: var(--success); }
+  .result.error { border-color: var(--danger); color: var(--danger); }
+  .result.warning { border-color: var(--warning); }
+
+  .result-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+  .icon-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: all 0.2s;
+    white-space: nowrap;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    line-height: 1;
+  }
+
+  .icon-btn:hover { background: var(--card-hover); border-color: var(--accent); }
+
+  .info-note {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    margin-top: 4px;
+    font-style: italic;
+    line-height: 1.3;
+  }
+
+  .info-note.warn { color: var(--warning); }
+
+  .history-list {
+    max-height: 440px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .history-list::-webkit-scrollbar { width: 5px; }
+  .history-list::-webkit-scrollbar-track { background: rgba(0,0,0,0.15); border-radius: 3px; }
+  .history-list::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
+
+  .history-item {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+    position: relative;
+  }
+
+  .history-item:hover {
+    background: rgba(0, 0, 0, 0.32);
+    border-color: var(--accent);
+  }
+
+  .history-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .history-top-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .history-type {
+    display: inline-block;
+    font-size: 0.62rem;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--accent);
+    color: #1f2d38;
+    font-weight: 700;
+  }
+
+  .history-type.mgrs { background: var(--accent-2); color: #2a3d2a; }
+
+  .history-date {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .history-date::before { content: '🕒'; font-size: 0.7rem; }
+
+  .history-actions-row { display: flex; gap: 3px; }
+
+  .history-item-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 2px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.65rem;
+    transition: all 0.2s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
+  }
+
+  .history-item-btn:hover {
+    background: var(--card-hover);
+    color: var(--text);
+    border-color: var(--accent);
+  }
+
+  .history-body { cursor: pointer; }
+
+  .history-from, .history-to {
+    font-family: 'Consolas', monospace;
+    font-size: 0.78rem;
+    word-break: break-all;
+    line-height: 1.3;
+  }
+
+  .history-from { color: var(--text-dim); }
+  .history-arrow { color: var(--accent); margin: 2px 0; font-size: 0.75rem; }
+  .history-time-full {
+    font-size: 0.62rem;
+    color: var(--text-dim);
+    margin-top: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .history-empty {
+    text-align: center;
+    color: var(--text-dim);
+    padding: 28px 16px;
+    font-style: italic;
+    font-size: 0.85rem;
+  }
+
+  .history-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .clear-btn {
+    background: transparent;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 4px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.72rem;
+    transition: all 0.2s;
+  }
+
+  .clear-btn:hover { background: var(--danger); color: #fff; }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--success);
+    color: #1f2d1f;
+    padding: 9px 18px;
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+    opacity: 0;
+    transition: all 0.3s;
+    z-index: 100;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  .toast.error { background: var(--danger); color: #fff; }
+
+  .lib-status {
+    text-align: center;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    margin-top: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>🌍 Coordinate Converter</h1>
+      <p class="subtitle">Convert between Google Maps (Lat/Lng) ↔ MGRS coordinates</p>
+    </header>
+
+    <div class="orientation-toggle">
+      <button class="orient-btn" id="horizontalBtn">▦ Horizontal</button>
+      <button class="orient-btn" id="verticalBtn">▤ Vertical</button>
+    </div>
+
+    <div class="container horizontal" id="container">
+      <div class="card">
+        <div class="card-header">
+          <div class="icon">📍</div>
+          <span>Lat/Lng → MGRS</span>
+        </div>
+        <div class="row">
+          <div class="form-group">
+            <label>Latitude</label>
+            <input type="text" id="latInput" placeholder="40.712800" />
+          </div>
+          <div class="form-group">
+            <label>Longitude</label>
+            <input type="text" id="lngInput" placeholder="-74.006000" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Or paste Google Maps coordinates</label>
+          <input type="text" id="gmapInput" placeholder="40.712800, -74.006000" />
+        </div>
+        <div class="form-group">
+          <div class="label-row">
+            <label>MGRS Precision</label>
+            <select class="precision-select" id="precisionSelect">
+              <option value="1">1 m (5 digits)</option>
+              <option value="2">10 m (4 digits)</option>
+              <option value="3">100 m (3 digits)</option>
+              <option value="4">1 km (2 digits)</option>
+              <option value="5">10 km (1 digit)</option>
+            </select>
+          </div>
+          <div class="info-note">Higher precision = better round-trip accuracy</div>
+        </div>
+        <button class="btn" id="toMgrsBtn">Convert to MGRS</button>
+        <div class="form-group" style="margin-top: 12px;">
+          <label>MGRS Result</label>
+          <div class="result" id="mgrsResult"><span>—</span></div>
+          <div class="info-note" id="mgrsRoundTripNote"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="icon">🎯</div>
+          <span>MGRS → Lat/Lng</span>
+        </div>
+        <div class="form-group">
+          <label>MGRS Coordinate</label>
+          <input type="text" id="mgrsInput" placeholder="18TWL8085712345" />
+          <div class="info-note">Format: GZD + 100km square + easting/northing (e.g. 18TWL8085712345)</div>
+        </div>
+        <button class="btn" id="toLatLngBtn">Convert to Lat/Lng</button>
+        <div class="form-group" style="margin-top: 12px;">
+          <label>Lat/Lng Result (center of MGRS cell)</label>
+          <div class="result" id="latLngResult"><span>—</span></div>
+        </div>
+        <div class="form-group" style="margin-top: 8px;">
+          <label>Google Maps Link</label>
+          <div class="result" id="gmapLinkResult"><span>—</span></div>
+        </div>
+        <div class="info-note" id="llRoundTripNote"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="icon">📜</div>
+          <span>Conversion History</span>
+        </div>
+        <div class="history-actions">
+          <span id="historyCount" style="color: var(--text-dim); font-size: 0.75rem;">0 / 30 entries</span>
+          <button class="clear-btn" id="clearHistoryBtn">Clear All</button>
+        </div>
+        <div class="history-list" id="historyList">
+          <div class="history-empty">No conversions yet</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="lib-status" id="libStatus">Loading libraries…</div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  'use strict';
+
+  const STORAGE_KEY = 'coordConverter_state_v4';
+  const HISTORY_LIMIT = 30;
+
+  const $ = id => document.getElementById(id);
+
+  const state = {
+    orientation: 'horizontal',
+    inputs: { lat: '', lng: '', gmap: '', mgrs: '', precision: '1' },
+    outputs: { mgrs: '', latLng: '', gmapLink: '' },
+    history: []
+  };
+
+  // =====================================================================
+  // MGRS engine — strict NGA/USGS spec, built on proj4js WGS84 ↔ UTM.
+  //
+  // 100km square letter scheme (per MGRS standard):
+  //   - Columns (easting letters): 8 letters, repeating across 3 zone sets.
+  //     Set 1 (zones 1, 4, 7, ...): A..H   (ABCDEFGH)
+  //     Set 2 (zones 2, 5, 8, ...): J..R   (JKLMNPQR, skipping I,O)
+  //     Set 3 (zones 3, 6, 9, ...): S..Z   (STUVWXYZ)
+  //     Zone set index = ((zone - 1) % 3)
+  //   - Rows (northing letters): 20 letters, two different starts.
+  //     Set A (odd zones):  A..V (ABCDEFGHJKLMNPQRSTUV, skipping I,O)
+  //     Set B (even zones): F..E (FGHJKLMNPQRSTUVABCDE)
+  //     Zone row set = ((zone - 1) % 2)
+  //
+  // Previous bug: column scheme only alternated between 2 sets (A..H / J..R)
+  // and never produced S..Z. That made e.g. 18TWL invalid because "W" belongs
+  // to zone set 3 (S..Z), but our parser looked only in set 1 (A..H).
+  // =====================================================================
+  const MGRSEngine = (function() {
+    const LAT_BANDS = 'CDEFGHJKLMNPQRSTUVWX';
+
+    const COL_SETS = [
+      'ABCDEFGH',  // zone set 1 (zones 1, 4, 7, 10, ...)
+      'JKLMNPQR',  // zone set 2 (zones 2, 5, 8, 11, ...)
+      'STUVWXYZ'   // zone set 3 (zones 3, 6, 9, 12, ...)
+    ];
+
+    const ROW_SETS = [
+      'ABCDEFGHJKLMNPQRSTUV', // odd zones  (1,3,5,...)
+      'FGHJKLMNPQRSTUVABCDE'  // even zones (2,4,6,...)
+    ];
+
+    function colSetForZone(zone)  { return COL_SETS[(zone - 1) % 3]; }
+    function rowSetForZone(zone)  { return ROW_SETS[(zone - 1) % 2]; }
+
+    function latBand(lat) {
+      if (lat < -80 || lat > 84) throw new Error('Latitude out of MGRS range (-80..84)');
+      if (lat >= 72) return 'X';
+      const idx = Math.floor((lat + 80) / 8);
+      return LAT_BANDS[idx];
+    }
+
+    function utmZone(lat, lng) {
+      let zone = Math.floor((lng + 180) / 6) + 1;
+      // Norway exception
+      if (lat >= 56 && lat < 64 && lng >= 3 && lng < 12) zone = 32;
+      // Svalbard exceptions
+      if (lat >= 72 && lat < 84) {
+        if (lng >= 0 && lng < 9) zone = 31;
+        else if (lng >= 9 && lng < 21) zone = 33;
+        else if (lng >= 21 && lng < 33) zone = 35;
+        else if (lng >= 33 && lng < 42) zone = 37;
+      }
+      return zone;
+    }
+
+    function utmProj(zone, isNorth) {
+      return `+proj=utm +zone=${zone} ${isNorth ? '+north' : '+south'} +datum=WGS84 +units=m +no_defs`;
+    }
+
+    function squareIdentifierFromGrid(easting, northing, zone) {
+      const colSet = colSetForZone(zone);
+      const rowSet = rowSetForZone(zone);
+
+      // Column: easting 100k index. Standard UTM eastings are 100_000..900_000
+      // so (floor(e/100000) - 1) maps to 0..7 -> one of the 8 column letters.
+      const colIdx = Math.floor(easting / 100000) - 1;
+      if (colIdx < 0 || colIdx >= colSet.length) {
+        throw new Error(`Easting out of expected UTM range (${Math.round(easting)})`);
+      }
+      const colLetter = colSet[colIdx];
+
+      // Row: northing mod 2_000_000 / 100_000
+      const rowIdx = Math.floor(northing / 100000) % 20;
+      const rowLetter = rowSet[rowIdx];
+
+      return colLetter + rowLetter;
+    }
+
+    function forward(lng, lat, precision) {
+      if (lat < -80 || lat > 84) throw new Error('Latitude out of MGRS range');
+      if (lng < -180 || lng > 180) throw new Error('Longitude out of range');
+      precision = Math.max(1, Math.min(5, precision | 0));
+
+      const zone = utmZone(lat, lng);
+      const band = latBand(lat);
+      const isNorth = lat >= 0;
+
+      const [e, n] = proj4('WGS84', utmProj(zone, isNorth), [lng, lat]);
+      const square = squareIdentifierFromGrid(e, n, zone);
+
+      const digits = precision;
+      const divisor = Math.pow(10, 5 - digits);
+      const eastStr  = String(Math.floor((e % 100000) / divisor)).padStart(digits, '0');
+      const northStr = String(Math.floor((n % 100000) / divisor)).padStart(digits, '0');
+
+      return `${String(zone).padStart(2, '0')}${band}${square}${eastStr}${northStr}`;
+    }
+
+    function parse(mgrs) {
+      const s = mgrs.trim().toUpperCase().replace(/\s+/g, '');
+      const re = /^([0-9]{1,2})([C-HJ-NP-X])([A-HJ-NP-Z])([A-HJ-NP-V])((?:[0-9]{2}){1,5})?$/;
+      const m = s.match(re);
+      if (!m) throw new Error('Invalid MGRS format');
+
+      const zone       = parseInt(m[1], 10);
+      const band       = m[2];
+      const colLetter  = m[3];
+      const rowLetter  = m[4];
+      const digits     = m[5] || '';
+      const halfLen    = digits.length / 2;
+      const eastPart   = digits.slice(0, halfLen) || '0';
+      const northPart  = digits.slice(halfLen) || '0';
+
+      if (zone < 1 || zone > 60) throw new Error('Zone must be 1..60');
+
+      const colSet = colSetForZone(zone);
+      const rowSet = rowSetForZone(zone);
+
+      const colIdx = colSet.indexOf(colLetter);
+      if (colIdx < 0) {
+        throw new Error(
+          `Invalid 100km column letter "${colLetter}" for zone ${zone} ` +
+          `(expected one of ${colSet})`
+        );
+      }
+      const rowIdx = rowSet.indexOf(rowLetter);
+      if (rowIdx < 0) {
+        throw new Error(
+          `Invalid 100km row letter "${rowLetter}" for zone ${zone} ` +
+          `(expected one of ${rowSet})`
+        );
+      }
+
+      const e100k = (colIdx + 1) * 100000;
+
+      const bandLatMin = (LAT_BANDS.indexOf(band) * 8) - 80;
+      const isNorth = bandLatMin >= 0;
+
+      // Figure out the correct 2,000,000 m northing cycle for this band/zone
+      let bandNorthingBase;
+      {
+        const centralLng = (zone - 1) * 6 - 180 + 3;
+        const [, _n] = proj4('WGS84', utmProj(zone, isNorth), [centralLng, bandLatMin]);
+        bandNorthingBase = _n;
+      }
+      const twoMil = 2000000;
+      const baseCycle = Math.floor(bandNorthingBase / twoMil) * twoMil;
+      let northing = baseCycle + rowIdx * 100000;
+      if (northing < bandNorthingBase) northing += twoMil;
+
+      const scale = Math.pow(10, 5 - halfLen);
+      const easting      = e100k + (parseInt(eastPart, 10)  * scale);
+      const northingCell = northing + (parseInt(northPart, 10) * scale);
+
+      const cellSize = scale;
+      const centerE = easting + cellSize / 2;
+      const centerN = northingCell + cellSize / 2;
+
+      const [lng, lat] = proj4(utmProj(zone, isNorth), 'WGS84', [centerE, centerN]);
+
+      return {
+        lat, lng,
+        cellSize,
+        zone, isNorth, digits: halfLen,
+        normalized: s
+      };
+    }
+
+    return { forward, inverse: parse, parse };
+  })();
+
+  // ---- Storage ----
+  function saveState() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch(e) { console.warn('Storage failed', e); }
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      Object.assign(state, data);
+      if (!state.inputs.precision) state.inputs.precision = '1';
+      if (state.history.length > HISTORY_LIMIT) {
+        state.history = state.history.slice(0, HISTORY_LIMIT);
+      }
+    } catch(e) { console.warn('Load failed', e); }
+  }
+
+  // ---- UI helpers ----
+  function toast(msg, isError = false) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (isError ? ' error' : '');
+    setTimeout(() => t.className = 'toast', 2500);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function gmapsUrl(lat, lng) {
+    return `https://www.google.com/maps?q=${Number(lat).toFixed(6)},${Number(lng).toFixed(6)}`;
+  }
+
+  function setResult(elId, value, opts = {}) {
+    const el = $(elId);
+    if (!value) {
+      el.innerHTML = '<span>—</span>';
+      el.className = 'result';
+      return;
+    }
+    const cls = opts.error ? 'error' : (opts.warning ? 'warning' : 'success');
+    el.className = 'result ' + cls;
+
+    if (opts.error) {
+      el.innerHTML = `<span>${escapeHtml(value)}</span>`;
+      return;
+    }
+
+    const actions = [];
+    actions.push(`<button class="icon-btn" data-copy="${escapeHtml(value)}" title="Copy">📋</button>`);
+    if (opts.mapUrl) {
+      actions.push(`<a class="icon-btn" href="${escapeHtml(opts.mapUrl)}" target="_blank" rel="noopener" title="Open in Google Maps">🗺️</a>`);
+    }
+    el.innerHTML = `<span>${escapeHtml(value)}</span><div class="result-actions">${actions.join('')}</div>`;
+  }
+
+  function parseLat(s) {
+    if (typeof s !== 'string') s = String(s);
+    s = s.trim();
+    if (!/^-?\d+(\.\d+)?$/.test(s)) return NaN;
+    const n = parseFloat(s);
+    if (n < -80 || n > 84) return NaN;
+    return n;
+  }
+
+  function parseLng(s) {
+    if (typeof s !== 'string') s = String(s);
+    s = s.trim();
+    if (!/^-?\d+(\.\d+)?$/.test(s)) return NaN;
+    const n = parseFloat(s);
+    if (n < -180 || n > 180) return NaN;
+    return n;
+  }
+
+  function parseGoogleMaps(str) {
+    const m = str.trim().match(/^(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)$/);
+    if (!m) return null;
+    const lat = parseLat(m[1]);
+    const lng = parseLng(m[2]);
+    if (isNaN(lat) || isNaN(lng)) return null;
+    return { lat, lng };
+  }
+
+  function validateMgrs(raw) {
+    const s = raw.trim().toUpperCase().replace(/\s+/g, '');
+    const re = /^([0-9]{1,2})([C-HJ-NP-X])([A-HJ-NP-Z])([A-HJ-NP-V])((?:[0-9]{2}){0,5})$/;
+    const m = s.match(re);
+    if (!m) return null;
+    return { normalized: s, digits: m[5].length };
+  }
+
+  function haversine(lat1, lng1, lat2, lng2) {
+    const R = 6371000;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat/2)**2 +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+              Math.sin(dLng/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+
+  // ---- Date formatting (safe Day.js with fallbacks) ----
+  let dayjsReady = false;
+  let relativeTimeReady = false;
+  let localizedFormatReady = false;
+
+  function initDayjs() {
+    if (typeof window.dayjs !== 'function') return;
+    dayjsReady = true;
+    try {
+      if (window.dayjs_plugin_relativeTime) {
+        dayjs.extend(window.dayjs_plugin_relativeTime);
+        relativeTimeReady = true;
+      }
+      if (window.dayjs_plugin_localizedFormat) {
+        dayjs.extend(window.dayjs_plugin_localizedFormat);
+        localizedFormatReady = true;
+      }
+    } catch(e) {
+      console.warn('Day.js plugin init failed', e);
+    }
+  }
+
+  function fallbackRelative(ts) {
+    const diff = Math.max(0, (Date.now() - ts) / 1000);
+    if (diff < 5)    return 'just now';
+    if (diff < 60)   return Math.floor(diff) + 's ago';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+  }
+
+  function formatRelative(ts) {
+    if (dayjsReady && relativeTimeReady) {
+      try {
+        const d = dayjs(ts);
+        if (d && typeof d.fromNow === 'function') return d.fromNow();
+      } catch(e) {}
+    }
+    return fallbackRelative(ts);
+  }
+
+  function formatFullDate(ts) {
+    if (dayjsReady && localizedFormatReady) {
+      try {
+        const d = dayjs(ts);
+        if (d && typeof d.format === 'function') return d.format('ll LT');
+      } catch(e) {}
+    }
+    try { return new Date(ts).toLocaleString(); }
+    catch(e) { return String(ts); }
+  }
+
+  // ---- Conversions ----
+  function convertToMgrs() {
+    let lat, lng;
+    const gmapRaw = $('gmapInput').value.trim();
+
+    if (gmapRaw) {
+      const parsed = parseGoogleMaps(gmapRaw);
+      if (!parsed) {
+        setResult('mgrsResult', 'Invalid format. Use: lat, lng (Lat: -80..84, Lng: -180..180)', { error: true });
+        $('mgrsRoundTripNote').textContent = '';
+        return;
+      }
+      lat = parsed.lat;
+      lng = parsed.lng;
+      $('latInput').value = lat;
+      $('lngInput').value = lng;
+    } else {
+      lat = parseLat($('latInput').value);
+      lng = parseLng($('lngInput').value);
+    }
+
+    if (isNaN(lat) || isNaN(lng)) {
+      setResult('mgrsResult', 'Invalid coordinates. Lat: -80..84, Lng: -180..180', { error: true });
+      $('mgrsRoundTripNote').textContent = '';
+      return;
+    }
+
+    const precision = parseInt($('precisionSelect').value, 10) || 1;
+
+    try {
+      const mgrsStr = MGRSEngine.forward(lng, lat, precision);
+
+      let roundTripNote = '';
+      let warning = false;
+      try {
+        const back = MGRSEngine.inverse(mgrsStr);
+        const distM = haversine(lat, lng, back.lat, back.lng);
+        const cellSize = Math.pow(10, 5 - precision);
+        if (distM > cellSize * 1.5) {
+          roundTripNote = `⚠️ Round-trip drift: ${distM.toFixed(1)} m (cell: ${cellSize} m)`;
+          warning = true;
+        } else {
+          roundTripNote = `✓ Round-trip verified: ${distM.toFixed(2)} m drift (within ${cellSize} m cell)`;
+        }
+      } catch(e) {
+        roundTripNote = '⚠️ Could not verify round-trip: ' + e.message;
+        warning = true;
+      }
+
+      setResult('mgrsResult', mgrsStr, { warning, mapUrl: gmapsUrl(lat, lng) });
+      $('mgrsRoundTripNote').textContent = roundTripNote;
+      $('mgrsRoundTripNote').className = 'info-note' + (warning ? ' warn' : '');
+      state.outputs.mgrs = mgrsStr;
+
+      addHistory({
+        type: 'latlng-to-mgrs',
+        from: `${lat}, ${lng}`,
+        to: mgrsStr,
+        lat, lng,
+        mgrs: mgrsStr,
+        time: Date.now()
+      });
+    } catch(e) {
+      setResult('mgrsResult', 'Conversion error: ' + e.message, { error: true });
+      $('mgrsRoundTripNote').textContent = '';
+    }
+  }
+
+  function convertToLatLng() {
+    const raw = $('mgrsInput').value;
+    const validated = validateMgrs(raw);
+    if (!validated) {
+      setResult('latLngResult', 'Invalid MGRS format. Expected e.g. 18TWL8085712345', { error: true });
+      setResult('gmapLinkResult', '');
+      $('llRoundTripNote').textContent = '';
+      return;
+    }
+    $('mgrsInput').value = validated.normalized;
+
+    try {
+      const parsed = MGRSEngine.inverse(validated.normalized);
+      const lat = parsed.lat;
+      const lng = parsed.lng;
+
+      const latLngStr = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+      const gmapLink = gmapsUrl(lat, lng);
+
+      let roundTripNote = '';
+      let warning = false;
+      try {
+        const precision = Math.max(1, validated.digits / 2);
+        const backMgrs = MGRSEngine.forward(lng, lat, precision);
+        if (backMgrs === validated.normalized) {
+          roundTripNote = `✓ Round-trip exact match at precision ${precision}`;
+        } else {
+          roundTripNote = `⚠️ Round-trip differs: ${validated.normalized} → ${backMgrs}`;
+          warning = true;
+        }
+      } catch(e) {
+        roundTripNote = '⚠️ Could not verify round-trip';
+        warning = true;
+      }
+
+      setResult('latLngResult', latLngStr, { warning, mapUrl: gmapLink });
+      setResult('gmapLinkResult', gmapLink, { warning, mapUrl: gmapLink });
+      $('llRoundTripNote').textContent = roundTripNote;
+      $('llRoundTripNote').className = 'info-note' + (warning ? ' warn' : '');
+
+      state.outputs.latLng = latLngStr;
+      state.outputs.gmapLink = gmapLink;
+
+      addHistory({
+        type: 'mgrs-to-latlng',
+        from: validated.normalized,
+        to: latLngStr,
+        lat, lng,
+        mgrs: validated.normalized,
+        time: Date.now()
+      });
+    } catch(e) {
+      setResult('latLngResult', 'Invalid MGRS: ' + e.message, { error: true });
+      setResult('gmapLinkResult', '');
+      $('llRoundTripNote').textContent = '';
+    }
+  }
+
+  // ---- History ----
+  function addHistory(entry) {
+    state.history.unshift(entry);
+    if (state.history.length > HISTORY_LIMIT) {
+      state.history = state.history.slice(0, HISTORY_LIMIT);
+    }
+    renderHistory();
+    saveState();
+  }
+
+  function renderHistory() {
+    const list = $('historyList');
+    $('historyCount').textContent = `${state.history.length} / ${HISTORY_LIMIT} entries`;
+
+    if (state.history.length === 0) {
+      list.innerHTML = '<div class="history-empty">No conversions yet</div>';
+      return;
+    }
+
+    list.innerHTML = state.history.map((h, i) => {
+      const typeLabel = h.type === 'mgrs-to-latlng' ? 'MGRS → LL' : 'LL → MGRS';
+      const typeClass = h.type === 'mgrs-to-latlng' ? 'mgrs' : '';
+      const relative  = formatRelative(h.time);
+      const full      = formatFullDate(h.time);
+      const mapUrl    = (h.lat != null && h.lng != null) ? gmapsUrl(h.lat, h.lng) : '';
+
+      return `
+        <div class="history-item" data-idx="${i}">
+          <div class="history-top">
+            <div class="history-top-left">
+              <span class="history-type ${typeClass}">${typeLabel}</span>
+              <span class="history-date" title="${escapeHtml(full)}">${escapeHtml(relative)}</span>
+            </div>
+            <div class="history-actions-row">
+              <button class="history-item-btn" data-copy-from="${i}" title="Copy source">📋 From</button>
+              <button class="history-item-btn" data-copy-to="${i}" title="Copy result">📋 To</button>
+              ${mapUrl ? `<a class="history-item-btn" href="${escapeHtml(mapUrl)}" target="_blank" rel="noopener" title="Open in Google Maps">🗺️</a>` : ''}
+              <button class="history-item-btn" data-delete="${i}" title="Delete">✕</button>
+            </div>
+          </div>
+          <div class="history-body" data-load="${i}">
+            <div class="history-from">${escapeHtml(h.from)}</div>
+            <div class="history-arrow">↓</div>
+            <div class="history-to">${escapeHtml(h.to)}</div>
+            <div class="history-time-full"><span>📅 ${escapeHtml(full)}</span></div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function updateRelativeTimestamps() {
+    const nodes = document.querySelectorAll('.history-item');
+    nodes.forEach((node) => {
+      const idxAttr = node.getAttribute('data-idx');
+      if (idxAttr == null) return;
+      const entry = state.history[parseInt(idxAttr, 10)];
+      if (!entry) return;
+      const relEl = node.querySelector('.history-date');
+      if (relEl) relEl.textContent = formatRelative(entry.time);
+    });
+  }
+
+  function setOrientation(orient) {
+    state.orientation = orient;
+    const container = $('container');
+    container.className = 'container ' + orient;
+    $('horizontalBtn').classList.toggle('active', orient === 'horizontal');
+    $('verticalBtn').classList.toggle('active', orient === 'vertical');
+    saveState();
+  }
+
+  function syncInputsToState() {
+    state.inputs.lat = $('latInput').value;
+    state.inputs.lng = $('lngInput').value;
+    state.inputs.gmap = $('gmapInput').value;
+    state.inputs.mgrs = $('mgrsInput').value;
+    state.inputs.precision = $('precisionSelect').value;
+    saveState();
+  }
+
+  function restoreInputs() {
+    $('latInput').value = state.inputs.lat || '';
+    $('lngInput').value = state.inputs.lng || '';
+    $('gmapInput').value = state.inputs.gmap || '';
+    $('mgrsInput').value = state.inputs.mgrs || '';
+    $('precisionSelect').value = state.inputs.precision || '1';
+
+    if (state.outputs.mgrs) {
+      const lat = parseFloat(state.inputs.lat);
+      const lng = parseFloat(state.inputs.lng);
+      const mapUrl = (!isNaN(lat) && !isNaN(lng)) ? gmapsUrl(lat, lng) : null;
+      setResult('mgrsResult', state.outputs.mgrs, mapUrl ? { mapUrl } : {});
+    }
+    if (state.outputs.latLng) {
+      setResult('latLngResult', state.outputs.latLng, { mapUrl: state.outputs.gmapLink });
+    }
+    if (state.outputs.gmapLink) {
+      setResult('gmapLinkResult', state.outputs.gmapLink, { mapUrl: state.outputs.gmapLink });
+    }
+  }
+
+  function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text)
+        .then(() => toast('Copied to clipboard!'))
+        .catch(() => fallbackCopy(text));
+    } else {
+      fallbackCopy(text);
+    }
+  }
+
+  function fallbackCopy(text) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed'; ta.style.top = '-1000px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      toast('Copied to clipboard!');
+    } catch(e) {
+      toast('Copy failed', true);
+    }
+  }
+
+  function updateLibStatus() {
+    const libs = [];
+    if (window.proj4) libs.push('proj4js');
+    if (dayjsReady) {
+      let s = 'day.js';
+      const plugins = [];
+      if (relativeTimeReady) plugins.push('relativeTime');
+      if (localizedFormatReady) plugins.push('localizedFormat');
+      if (plugins.length) s += ' (' + plugins.join(', ') + ')';
+      libs.push(s);
+    }
+    $('libStatus').textContent = libs.length
+      ? 'Powered by ' + libs.join(' · ')
+      : 'Running on built-in fallback engine';
+  }
+
+  function init() {
+    initDayjs();
+    updateLibStatus();
+
+    loadState();
+    setOrientation(state.orientation || 'horizontal');
+    restoreInputs();
+    renderHistory();
+
+    $('toMgrsBtn').addEventListener('click', convertToMgrs);
+    $('toLatLngBtn').addEventListener('click', convertToLatLng);
+    $('horizontalBtn').addEventListener('click', () => setOrientation('horizontal'));
+    $('verticalBtn').addEventListener('click', () => setOrientation('vertical'));
+    $('precisionSelect').addEventListener('change', syncInputsToState);
+
+    ['latInput', 'lngInput', 'gmapInput', 'mgrsInput'].forEach(id => {
+      $(id).addEventListener('input', syncInputsToState);
+      $(id).addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          if (id === 'mgrsInput') convertToLatLng();
+          else convertToMgrs();
+        }
+      });
+    });
+
+    $('clearHistoryBtn').addEventListener('click', () => {
+      if (state.history.length === 0) return;
+      if (confirm('Clear all conversion history?')) {
+        state.history = [];
+        renderHistory();
+        saveState();
+        toast('History cleared');
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      const copyEl = e.target.closest('[data-copy]');
+      if (copyEl) {
+        e.preventDefault();
+        copyToClipboard(copyEl.getAttribute('data-copy'));
+      }
+    });
+
+    $('historyList').addEventListener('click', (e) => {
+      const copyFromBtn = e.target.closest('[data-copy-from]');
+      if (copyFromBtn) {
+        e.stopPropagation();
+        const idx = parseInt(copyFromBtn.getAttribute('data-copy-from'));
+        const entry = state.history[idx];
+        if (entry) copyToClipboard(entry.from);
+        return;
+      }
+      const copyToBtn = e.target.closest('[data-copy-to]');
+      if (copyToBtn) {
+        e.stopPropagation();
+        const idx = parseInt(copyToBtn.getAttribute('data-copy-to'));
+        const entry = state.history[idx];
+        if (entry) copyToClipboard(entry.to);
+        return;
+      }
+      const delBtn = e.target.closest('[data-delete]');
+      if (delBtn) {
+        e.stopPropagation();
+        const idx = parseInt(delBtn.getAttribute('data-delete'));
+        state.history.splice(idx, 1);
+        renderHistory();
+        saveState();
+        toast('Entry removed');
+        return;
+      }
+      const loadBody = e.target.closest('[data-load]');
+      if (loadBody) {
+        const idx = parseInt(loadBody.getAttribute('data-load'));
+        const entry = state.history[idx];
+        if (!entry) return;
+
+        if (entry.type === 'mgrs-to-latlng') {
+          $('mgrsInput').value = entry.from;
+        } else {
+          const parsed = parseGoogleMaps(entry.from);
+          if (parsed) {
+            $('latInput').value = parsed.lat;
+            $('lngInput').value = parsed.lng;
+            $('gmapInput').value = entry.from;
+          }
+        }
+        syncInputsToState();
+        toast('Loaded from history');
+      }
+    });
+
+    setInterval(updateRelativeTimestamps, 30000);
+  }
+
+  function boot() {
+    if (!window.proj4) {
+      $('libStatus').textContent = 'Failed to load proj4js';
+      toast('Failed to load conversion library', true);
+      return;
+    }
+    init();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+</script>
+</body>
+</html>
