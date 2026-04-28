@@ -2,10 +2,6 @@
 
 A clean, fast, single-file web application to convert between **Google Maps (Latitude / Longitude)** and **MGRS (Military Grid Reference System)** coordinates — right in your browser.
 
-No build step, no backend, no tracking. Just open the HTML file and go.
-
-**Repository:** [https://github.com/mgrsjs/mgrsjs.github.io](https://github.com/mgrsjs/mgrsjs.github.io)
-
 ---
 
 ## ✨ Features
